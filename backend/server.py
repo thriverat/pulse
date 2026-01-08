@@ -2,8 +2,7 @@ from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-import mysql.connector
-from mysql.connector import pooling
+import aiosqlite
 import os
 import logging
 from pathlib import Path
@@ -18,21 +17,8 @@ from collections import defaultdict
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MySQL Connection Pool
-mysql_config = {
-    "host": os.environ.get('MYSQL_HOST', 'localhost'),
-    "port": int(os.environ.get('MYSQL_PORT', 3306)),
-    "user": os.environ.get('MYSQL_USER', 'root'),
-    "password": os.environ.get('MYSQL_PASSWORD', ''),
-    "database": os.environ.get('MYSQL_DATABASE', 'pulse_app'),
-    "pool_name": "pulse_pool",
-    "pool_size": 5
-}
-
-connection_pool = pooling.MySQLConnectionPool(**mysql_config)
-
-def get_db():
-    return connection_pool.get_connection()
+# SQLite Database path
+DB_PATH = ROOT_DIR / 'pulse_app.db'
 
 # JWT Configuration
 SECRET_KEY = os.environ.get('JWT_SECRET', 'your-secret-key-change-in-production')
@@ -160,89 +146,92 @@ class AnalyticsResponse(BaseModel):
     mood_chart_data: List[dict]
     focus_chart_data: List[dict]
 
-# ========== DATABASE INITIALIZATION ==========
+# ========== DATABASE HELPERS ==========
 
-def init_db():
-    conn = get_db()
-    cursor = conn.cursor()
+async def get_db():
+    db = await aiosqlite.connect(DB_PATH)
+    db.row_factory = aiosqlite.Row
+    return db
+
+async def init_db():
+    db = await get_db()
     
     # Users table
-    cursor.execute("""
+    await db.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            id VARCHAR(36) PRIMARY KEY,
-            name VARCHAR(255) NOT NULL,
-            email VARCHAR(255) UNIQUE NOT NULL,
-            password_hash VARCHAR(255) NOT NULL,
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
     
     # Habits table
-    cursor.execute("""
+    await db.execute("""
         CREATE TABLE IF NOT EXISTS habits (
-            id VARCHAR(36) PRIMARY KEY,
-            user_id VARCHAR(36) NOT NULL,
-            name VARCHAR(255) NOT NULL,
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            name TEXT NOT NULL,
             description TEXT,
-            frequency VARCHAR(50) DEFAULT 'daily',
-            color VARCHAR(20) DEFAULT '#3f8cff',
-            icon VARCHAR(50) DEFAULT 'checkmark-circle',
-            target_per_week INT DEFAULT 7,
+            frequency TEXT DEFAULT 'daily',
+            color TEXT DEFAULT '#3f8cff',
+            icon TEXT DEFAULT 'checkmark-circle',
+            target_per_week INTEGER DEFAULT 7,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     """)
     
     # Habit logs table
-    cursor.execute("""
+    await db.execute("""
         CREATE TABLE IF NOT EXISTS habit_logs (
-            id VARCHAR(36) PRIMARY KEY,
-            habit_id VARCHAR(36) NOT NULL,
-            user_id VARCHAR(36) NOT NULL,
-            date DATE NOT NULL,
-            completed BOOLEAN DEFAULT FALSE,
+            id TEXT PRIMARY KEY,
+            habit_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            date TEXT NOT NULL,
+            completed BOOLEAN DEFAULT 0,
             notes TEXT,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY unique_habit_date (habit_id, date),
+            UNIQUE(habit_id, date),
             FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE CASCADE,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     """)
     
     # Mood entries table
-    cursor.execute("""
+    await db.execute("""
         CREATE TABLE IF NOT EXISTS mood_entries (
-            id VARCHAR(36) PRIMARY KEY,
-            user_id VARCHAR(36) NOT NULL,
-            mood_level INT NOT NULL,
-            energy_level INT NOT NULL,
-            sleep_hours FLOAT NOT NULL,
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            mood_level INTEGER NOT NULL,
+            energy_level INTEGER NOT NULL,
+            sleep_hours REAL NOT NULL,
             notes TEXT,
-            date DATE NOT NULL,
+            date TEXT NOT NULL,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY unique_user_date (user_id, date),
+            UNIQUE(user_id, date),
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     """)
     
     # Focus sessions table
-    cursor.execute("""
+    await db.execute("""
         CREATE TABLE IF NOT EXISTS focus_sessions (
-            id VARCHAR(36) PRIMARY KEY,
-            user_id VARCHAR(36) NOT NULL,
-            task_name VARCHAR(255) NOT NULL,
-            duration_minutes INT NOT NULL,
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            task_name TEXT NOT NULL,
+            duration_minutes INTEGER NOT NULL,
             start_time TIMESTAMP NOT NULL,
             end_time TIMESTAMP NOT NULL,
-            date DATE NOT NULL,
-            completed BOOLEAN DEFAULT TRUE,
+            date TEXT NOT NULL,
+            completed BOOLEAN DEFAULT 1,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     """)
     
-    conn.commit()
-    cursor.close()
-    conn.close()
+    await db.commit()
+    await db.close()
 
 # ========== AUTH HELPERS ==========
 
@@ -266,12 +255,11 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         if user_id is None:
             raise HTTPException(status_code=401, detail="Invalid token")
         
-        conn = get_db()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
-        user = cursor.fetchone()
-        cursor.close()
-        conn.close()
+        db = await get_db()
+        async with db.execute("SELECT * FROM users WHERE id = ?", (user_id,)) as cursor:
+            row = await cursor.fetchone()
+            user = dict(row) if row else None
+        await db.close()
         
         if user is None:
             raise HTTPException(status_code=401, detail="User not found")
@@ -286,27 +274,25 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 
 @api_router.post("/auth/register", response_model=TokenResponse)
 async def register(user_data: UserRegister):
-    conn = get_db()
-    cursor = conn.cursor(dictionary=True)
+    db = await get_db()
     
     # Check if user exists
-    cursor.execute("SELECT * FROM users WHERE email = %s", (user_data.email,))
-    existing_user = cursor.fetchone()
+    async with db.execute("SELECT * FROM users WHERE email = ?", (user_data.email,)) as cursor:
+        existing_user = await cursor.fetchone()
+    
     if existing_user:
-        cursor.close()
-        conn.close()
+        await db.close()
         raise HTTPException(status_code=400, detail="Email already registered")
     
     # Create user
     user_id = str(uuid.uuid4())
     created_at = datetime.utcnow()
-    cursor.execute(
-        "INSERT INTO users (id, name, email, password_hash, created_at) VALUES (%s, %s, %s, %s, %s)",
+    await db.execute(
+        "INSERT INTO users (id, name, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)",
         (user_id, user_data.name, user_data.email, hash_password(user_data.password), created_at)
     )
-    conn.commit()
-    cursor.close()
-    conn.close()
+    await db.commit()
+    await db.close()
     
     # Create token
     access_token = create_access_token(data={"sub": user_id})
@@ -323,12 +309,11 @@ async def register(user_data: UserRegister):
 
 @api_router.post("/auth/login", response_model=TokenResponse)
 async def login(credentials: UserLogin):
-    conn = get_db()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM users WHERE email = %s", (credentials.email,))
-    user = cursor.fetchone()
-    cursor.close()
-    conn.close()
+    db = await get_db()
+    async with db.execute("SELECT * FROM users WHERE email = ?", (credentials.email,)) as cursor:
+        row = await cursor.fetchone()
+        user = dict(row) if row else None
+    await db.close()
     
     if not user or not verify_password(credentials.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
@@ -358,21 +343,19 @@ async def get_me(current_user = Depends(get_current_user)):
 
 @api_router.post("/habits", response_model=Habit)
 async def create_habit(habit_data: HabitCreate, current_user = Depends(get_current_user)):
-    conn = get_db()
-    cursor = conn.cursor()
+    db = await get_db()
     
     habit_id = str(uuid.uuid4())
     created_at = datetime.utcnow()
     
-    cursor.execute(
+    await db.execute(
         """INSERT INTO habits (id, user_id, name, description, frequency, color, icon, target_per_week, created_at)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (habit_id, current_user["id"], habit_data.name, habit_data.description,
          habit_data.frequency, habit_data.color, habit_data.icon, habit_data.target_per_week, created_at)
     )
-    conn.commit()
-    cursor.close()
-    conn.close()
+    await db.commit()
+    await db.close()
     
     return Habit(
         id=habit_id,
@@ -388,31 +371,30 @@ async def create_habit(habit_data: HabitCreate, current_user = Depends(get_curre
 
 @api_router.get("/habits", response_model=List[Habit])
 async def get_habits(current_user = Depends(get_current_user)):
-    conn = get_db()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM habits WHERE user_id = %s", (current_user["id"],))
-    habits = cursor.fetchall()
-    cursor.close()
-    conn.close()
+    db = await get_db()
+    async with db.execute("SELECT * FROM habits WHERE user_id = ?", (current_user["id"],)) as cursor:
+        rows = await cursor.fetchall()
+        habits = [dict(row) for row in rows]
+    await db.close()
     
     return [Habit(**h) for h in habits]
 
 @api_router.post("/habits/log", response_model=HabitLog)
 async def log_habit(log_data: HabitLogCreate, current_user = Depends(get_current_user)):
-    conn = get_db()
-    cursor = conn.cursor(dictionary=True)
+    db = await get_db()
     
     # Check if log exists
-    cursor.execute(
-        "SELECT * FROM habit_logs WHERE habit_id = %s AND date = %s",
+    async with db.execute(
+        "SELECT * FROM habit_logs WHERE habit_id = ? AND date = ?",
         (log_data.habit_id, log_data.date)
-    )
-    existing_log = cursor.fetchone()
+    ) as cursor:
+        row = await cursor.fetchone()
+        existing_log = dict(row) if row else None
     
     if existing_log:
         # Update
-        cursor.execute(
-            "UPDATE habit_logs SET completed = %s, notes = %s WHERE id = %s",
+        await db.execute(
+            "UPDATE habit_logs SET completed = ?, notes = ? WHERE id = ?",
             (log_data.completed, log_data.notes, existing_log["id"])
         )
         log_id = existing_log["id"]
@@ -420,41 +402,41 @@ async def log_habit(log_data: HabitLogCreate, current_user = Depends(get_current
         # Insert
         log_id = str(uuid.uuid4())
         timestamp = datetime.utcnow()
-        cursor.execute(
+        await db.execute(
             """INSERT INTO habit_logs (id, habit_id, user_id, date, completed, notes, timestamp)
-               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (log_id, log_data.habit_id, current_user["id"], log_data.date, log_data.completed, log_data.notes, timestamp)
         )
     
-    conn.commit()
+    await db.commit()
     
     # Fetch the log
-    cursor.execute("SELECT * FROM habit_logs WHERE id = %s", (log_id,))
-    log = cursor.fetchone()
-    cursor.close()
-    conn.close()
+    async with db.execute("SELECT * FROM habit_logs WHERE id = ?", (log_id,)) as cursor:
+        row = await cursor.fetchone()
+        log = dict(row)
+    await db.close()
     
     return HabitLog(**log)
 
 @api_router.get("/habits/logs", response_model=List[HabitLog])
 async def get_habit_logs(habit_id: Optional[str] = None, current_user = Depends(get_current_user)):
-    conn = get_db()
-    cursor = conn.cursor(dictionary=True)
+    db = await get_db()
     
     if habit_id:
-        cursor.execute(
-            "SELECT * FROM habit_logs WHERE user_id = %s AND habit_id = %s ORDER BY date DESC",
+        async with db.execute(
+            "SELECT * FROM habit_logs WHERE user_id = ? AND habit_id = ? ORDER BY date DESC",
             (current_user["id"], habit_id)
-        )
+        ) as cursor:
+            rows = await cursor.fetchall()
     else:
-        cursor.execute(
-            "SELECT * FROM habit_logs WHERE user_id = %s ORDER BY date DESC",
+        async with db.execute(
+            "SELECT * FROM habit_logs WHERE user_id = ? ORDER BY date DESC",
             (current_user["id"],)
-        )
+        ) as cursor:
+            rows = await cursor.fetchall()
     
-    logs = cursor.fetchall()
-    cursor.close()
-    conn.close()
+    logs = [dict(row) for row in rows]
+    await db.close()
     
     return [HabitLog(**log) for log in logs]
 
@@ -462,21 +444,21 @@ async def get_habit_logs(habit_id: Optional[str] = None, current_user = Depends(
 
 @api_router.post("/mood", response_model=MoodEntry)
 async def create_mood_entry(entry_data: MoodEntryCreate, current_user = Depends(get_current_user)):
-    conn = get_db()
-    cursor = conn.cursor(dictionary=True)
+    db = await get_db()
     
     # Check if entry exists
-    cursor.execute(
-        "SELECT * FROM mood_entries WHERE user_id = %s AND date = %s",
+    async with db.execute(
+        "SELECT * FROM mood_entries WHERE user_id = ? AND date = ?",
         (current_user["id"], entry_data.date)
-    )
-    existing_entry = cursor.fetchone()
+    ) as cursor:
+        row = await cursor.fetchone()
+        existing_entry = dict(row) if row else None
     
     if existing_entry:
         # Update
-        cursor.execute(
-            """UPDATE mood_entries SET mood_level = %s, energy_level = %s, sleep_hours = %s, notes = %s
-               WHERE id = %s""",
+        await db.execute(
+            """UPDATE mood_entries SET mood_level = ?, energy_level = ?, sleep_hours = ?, notes = ?
+               WHERE id = ?""",
             (entry_data.mood_level, entry_data.energy_level, entry_data.sleep_hours, entry_data.notes, existing_entry["id"])
         )
         entry_id = existing_entry["id"]
@@ -484,34 +466,33 @@ async def create_mood_entry(entry_data: MoodEntryCreate, current_user = Depends(
         # Insert
         entry_id = str(uuid.uuid4())
         timestamp = datetime.utcnow()
-        cursor.execute(
+        await db.execute(
             """INSERT INTO mood_entries (id, user_id, mood_level, energy_level, sleep_hours, notes, date, timestamp)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (entry_id, current_user["id"], entry_data.mood_level, entry_data.energy_level,
              entry_data.sleep_hours, entry_data.notes, entry_data.date, timestamp)
         )
     
-    conn.commit()
+    await db.commit()
     
     # Fetch the entry
-    cursor.execute("SELECT * FROM mood_entries WHERE id = %s", (entry_id,))
-    entry = cursor.fetchone()
-    cursor.close()
-    conn.close()
+    async with db.execute("SELECT * FROM mood_entries WHERE id = ?", (entry_id,)) as cursor:
+        row = await cursor.fetchone()
+        entry = dict(row)
+    await db.close()
     
     return MoodEntry(**entry)
 
 @api_router.get("/mood", response_model=List[MoodEntry])
 async def get_mood_entries(current_user = Depends(get_current_user)):
-    conn = get_db()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute(
-        "SELECT * FROM mood_entries WHERE user_id = %s ORDER BY date DESC",
+    db = await get_db()
+    async with db.execute(
+        "SELECT * FROM mood_entries WHERE user_id = ? ORDER BY date DESC",
         (current_user["id"],)
-    )
-    entries = cursor.fetchall()
-    cursor.close()
-    conn.close()
+    ) as cursor:
+        rows = await cursor.fetchall()
+        entries = [dict(row) for row in rows]
+    await db.close()
     
     return [MoodEntry(**e) for e in entries]
 
@@ -519,22 +500,20 @@ async def get_mood_entries(current_user = Depends(get_current_user)):
 
 @api_router.post("/focus", response_model=FocusSession)
 async def create_focus_session(session_data: FocusSessionCreate, current_user = Depends(get_current_user)):
-    conn = get_db()
-    cursor = conn.cursor()
+    db = await get_db()
     
     session_id = str(uuid.uuid4())
     now = datetime.utcnow()
     start_time = now - timedelta(minutes=session_data.duration_minutes)
     
-    cursor.execute(
+    await db.execute(
         """INSERT INTO focus_sessions (id, user_id, task_name, duration_minutes, start_time, end_time, date, completed)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (session_id, current_user["id"], session_data.task_name, session_data.duration_minutes,
          start_time, now, session_data.date, session_data.completed)
     )
-    conn.commit()
-    cursor.close()
-    conn.close()
+    await db.commit()
+    await db.close()
     
     return FocusSession(
         id=session_id,
@@ -549,15 +528,14 @@ async def create_focus_session(session_data: FocusSessionCreate, current_user = 
 
 @api_router.get("/focus", response_model=List[FocusSession])
 async def get_focus_sessions(current_user = Depends(get_current_user)):
-    conn = get_db()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute(
-        "SELECT * FROM focus_sessions WHERE user_id = %s ORDER BY start_time DESC",
+    db = await get_db()
+    async with db.execute(
+        "SELECT * FROM focus_sessions WHERE user_id = ? ORDER BY start_time DESC",
         (current_user["id"],)
-    )
-    sessions = cursor.fetchall()
-    cursor.close()
-    conn.close()
+    ) as cursor:
+        rows = await cursor.fetchall()
+        sessions = [dict(row) for row in rows]
+    await db.close()
     
     return [FocusSession(**s) for s in sessions]
 
@@ -565,40 +543,39 @@ async def get_focus_sessions(current_user = Depends(get_current_user)):
 
 @api_router.get("/analytics", response_model=AnalyticsResponse)
 async def get_analytics(current_user = Depends(get_current_user)):
-    conn = get_db()
-    cursor = conn.cursor(dictionary=True)
+    db = await get_db()
     
     # Get data for last 7 days
     today = datetime.utcnow().date()
     week_ago = today - timedelta(days=7)
+    week_ago_str = week_ago.strftime("%Y-%m-%d")
     
     # Fetch data
-    cursor.execute(
-        "SELECT * FROM habit_logs WHERE user_id = %s AND date >= %s",
-        (current_user["id"], week_ago)
-    )
-    habit_logs = cursor.fetchall()
+    async with db.execute(
+        "SELECT * FROM habit_logs WHERE user_id = ? AND date >= ?",
+        (current_user["id"], week_ago_str)
+    ) as cursor:
+        habit_logs = [dict(row) for row in await cursor.fetchall()]
     
-    cursor.execute(
-        "SELECT * FROM mood_entries WHERE user_id = %s AND date >= %s",
-        (current_user["id"], week_ago)
-    )
-    mood_entries = cursor.fetchall()
+    async with db.execute(
+        "SELECT * FROM mood_entries WHERE user_id = ? AND date >= ?",
+        (current_user["id"], week_ago_str)
+    ) as cursor:
+        mood_entries = [dict(row) for row in await cursor.fetchall()]
     
-    cursor.execute(
-        "SELECT * FROM focus_sessions WHERE user_id = %s AND date >= %s",
-        (current_user["id"], week_ago)
-    )
-    focus_sessions = cursor.fetchall()
+    async with db.execute(
+        "SELECT * FROM focus_sessions WHERE user_id = ? AND date >= ?",
+        (current_user["id"], week_ago_str)
+    ) as cursor:
+        focus_sessions = [dict(row) for row in await cursor.fetchall()]
     
-    cursor.execute(
-        "SELECT * FROM habits WHERE user_id = %s",
+    async with db.execute(
+        "SELECT * FROM habits WHERE user_id = ?",
         (current_user["id"],)
-    )
-    habits = cursor.fetchall()
+    ) as cursor:
+        habits = [dict(row) for row in await cursor.fetchall()]
     
-    cursor.close()
-    conn.close()
+    await db.close()
     
     # Calculate weekly stats
     completed_habits = sum(1 for log in habit_logs if log["completed"])
@@ -627,7 +604,7 @@ async def get_analytics(current_user = Depends(get_current_user)):
     if mood_entries and focus_sessions:
         sleep_focus_map = defaultdict(list)
         for mood in mood_entries:
-            day_focus = [s["duration_minutes"] for s in focus_sessions if str(s["date"]) == str(mood["date"])]
+            day_focus = [s["duration_minutes"] for s in focus_sessions if s["date"] == mood["date"]]
             if day_focus:
                 sleep_bucket = "low" if mood["sleep_hours"] < 6 else "high"
                 sleep_focus_map[sleep_bucket].extend(day_focus)
@@ -659,7 +636,7 @@ async def get_analytics(current_user = Depends(get_current_user)):
     
     mood_chart_data = [
         {
-            "date": str(e["date"]),
+            "date": e["date"],
             "mood": e["mood_level"],
             "energy": e["energy_level"]
         }
@@ -669,7 +646,7 @@ async def get_analytics(current_user = Depends(get_current_user)):
     focus_chart_data = [
         {
             "date": date_str,
-            "minutes": sum(s["duration_minutes"] for s in focus_sessions if str(s["date"]) == date_str)
+            "minutes": sum(s["duration_minutes"] for s in focus_sessions if s["date"] == date_str)
         }
         for date_str in date_strings
     ]
@@ -701,5 +678,5 @@ logger = logging.getLogger(__name__)
 
 @app.on_event("startup")
 async def startup_db():
-    init_db()
-    logger.info("Database initialized")
+    await init_db()
+    logger.info(f"SQLite database initialized at {DB_PATH}")
