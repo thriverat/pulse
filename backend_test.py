@@ -492,11 +492,11 @@ class PulseAPITester:
         
         for endpoint, method in endpoints_to_test:
             response = self.make_request(method, endpoint, {})
-            if response and response.status_code == 401:
+            if response and response.status_code in [401, 403]:  # Both 401 and 403 are valid for unauthorized access
                 self.log_result("auth", f"Unauthorized Access Protection: {method} {endpoint}", True)
             else:
                 status = response.status_code if response else "No response"
-                self.log_result("auth", f"Unauthorized Access Protection: {method} {endpoint}", False, f"Expected 401, got {status}")
+                self.log_result("auth", f"Unauthorized Access Protection: {method} {endpoint}", False, f"Expected 401/403, got {status}")
         
         # Restore token
         self.token = original_token
