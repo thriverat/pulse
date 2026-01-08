@@ -161,15 +161,18 @@ backend:
 
   - task: "Analytics/Insights API"
     implemented: true
-    working: "NA"
+    working: true
     file: "/app/backend/server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: "NA"
         agent: "main"
         comment: "Implemented analytics endpoint with sleep-focus correlation, habit streaks, mood trends, and chart data. Needs comprehensive testing"
+      - working: true
+        agent: "testing"
+        comment: "Comprehensive testing completed. Analytics endpoint working perfectly: GET /api/analytics returns complete analytics with weekly_stats (total_habits_completed, total_focus_minutes, average_mood, average_energy, average_sleep, habit_completion_rate), insights array with sleep-focus correlation calculations, habit streaks, mood trends, focus productivity insights, habit_streaks dict, mood_chart_data and focus_chart_data arrays. Sleep-focus correlation algorithm working correctly. All calculations accurate and data structure matches Pydantic models."
 
 frontend:
   - task: "Authentication screens (Login/Register)"
