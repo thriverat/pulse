@@ -2,7 +2,8 @@ from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
+import mysql.connector
+from mysql.connector import pooling
 import os
 import logging
 from pathlib import Path
@@ -17,10 +18,21 @@ from collections import defaultdict
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# MySQL Connection Pool
+mysql_config = {
+    "host": os.environ.get('MYSQL_HOST', 'localhost'),
+    "port": int(os.environ.get('MYSQL_PORT', 3306)),
+    "user": os.environ.get('MYSQL_USER', 'root'),
+    "password": os.environ.get('MYSQL_PASSWORD', ''),
+    "database": os.environ.get('MYSQL_DATABASE', 'pulse_app'),
+    "pool_name": "pulse_pool",
+    "pool_size": 5
+}
+
+connection_pool = pooling.MySQLConnectionPool(**mysql_config)
+
+def get_db():
+    return connection_pool.get_connection()
 
 # JWT Configuration
 SECRET_KEY = os.environ.get('JWT_SECRET', 'your-secret-key-change-in-production')
@@ -59,7 +71,7 @@ class TokenResponse(BaseModel):
 class HabitCreate(BaseModel):
     name: str
     description: Optional[str] = ""
-    frequency: str = "daily"  # daily, weekly
+    frequency: str = "daily"
     color: str = "#3f8cff"
     icon: str = "checkmark-circle"
     target_per_week: int = 7
@@ -77,7 +89,7 @@ class Habit(BaseModel):
 
 class HabitLogCreate(BaseModel):
     habit_id: str
-    date: str  # YYYY-MM-DD
+    date: str
     completed: bool
     notes: Optional[str] = ""
 
@@ -92,11 +104,11 @@ class HabitLog(BaseModel):
 
 # Mood Models
 class MoodEntryCreate(BaseModel):
-    mood_level: int  # 1-5
-    energy_level: int  # 1-5
+    mood_level: int
+    energy_level: int
     sleep_hours: float
     notes: Optional[str] = ""
-    date: str  # YYYY-MM-DD
+    date: str
 
 class MoodEntry(BaseModel):
     id: str
@@ -112,7 +124,7 @@ class MoodEntry(BaseModel):
 class FocusSessionCreate(BaseModel):
     task_name: str
     duration_minutes: int
-    date: str  # YYYY-MM-DD
+    date: str
     completed: bool = True
 
 class FocusSession(BaseModel):
@@ -139,7 +151,7 @@ class InsightItem(BaseModel):
     title: str
     description: str
     value: str
-    trend: str  # "up", "down", "neutral"
+    trend: str
 
 class AnalyticsResponse(BaseModel):
     weekly_stats: WeeklyStats
@@ -147,6 +159,90 @@ class AnalyticsResponse(BaseModel):
     habit_streaks: dict
     mood_chart_data: List[dict]
     focus_chart_data: List[dict]
+
+# ========== DATABASE INITIALIZATION ==========
+
+def init_db():
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Users table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id VARCHAR(36) PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            email VARCHAR(255) UNIQUE NOT NULL,
+            password_hash VARCHAR(255) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # Habits table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS habits (
+            id VARCHAR(36) PRIMARY KEY,
+            user_id VARCHAR(36) NOT NULL,
+            name VARCHAR(255) NOT NULL,
+            description TEXT,
+            frequency VARCHAR(50) DEFAULT 'daily',
+            color VARCHAR(20) DEFAULT '#3f8cff',
+            icon VARCHAR(50) DEFAULT 'checkmark-circle',
+            target_per_week INT DEFAULT 7,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+    
+    # Habit logs table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS habit_logs (
+            id VARCHAR(36) PRIMARY KEY,
+            habit_id VARCHAR(36) NOT NULL,
+            user_id VARCHAR(36) NOT NULL,
+            date DATE NOT NULL,
+            completed BOOLEAN DEFAULT FALSE,
+            notes TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY unique_habit_date (habit_id, date),
+            FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+    
+    # Mood entries table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS mood_entries (
+            id VARCHAR(36) PRIMARY KEY,
+            user_id VARCHAR(36) NOT NULL,
+            mood_level INT NOT NULL,
+            energy_level INT NOT NULL,
+            sleep_hours FLOAT NOT NULL,
+            notes TEXT,
+            date DATE NOT NULL,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY unique_user_date (user_id, date),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+    
+    # Focus sessions table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS focus_sessions (
+            id VARCHAR(36) PRIMARY KEY,
+            user_id VARCHAR(36) NOT NULL,
+            task_name VARCHAR(255) NOT NULL,
+            duration_minutes INT NOT NULL,
+            start_time TIMESTAMP NOT NULL,
+            end_time TIMESTAMP NOT NULL,
+            date DATE NOT NULL,
+            completed BOOLEAN DEFAULT TRUE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+    
+    conn.commit()
+    cursor.close()
+    conn.close()
 
 # ========== AUTH HELPERS ==========
 
@@ -170,7 +266,13 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         if user_id is None:
             raise HTTPException(status_code=401, detail="Invalid token")
         
-        user = await db.users.find_one({"_id": user_id})
+        conn = get_db()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+        user = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
         if user is None:
             raise HTTPException(status_code=401, detail="User not found")
         
@@ -184,22 +286,27 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 
 @api_router.post("/auth/register", response_model=TokenResponse)
 async def register(user_data: UserRegister):
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+    
     # Check if user exists
-    existing_user = await db.users.find_one({"email": user_data.email})
+    cursor.execute("SELECT * FROM users WHERE email = %s", (user_data.email,))
+    existing_user = cursor.fetchone()
     if existing_user:
+        cursor.close()
+        conn.close()
         raise HTTPException(status_code=400, detail="Email already registered")
     
     # Create user
     user_id = str(uuid.uuid4())
-    user = {
-        "_id": user_id,
-        "name": user_data.name,
-        "email": user_data.email,
-        "password_hash": hash_password(user_data.password),
-        "created_at": datetime.utcnow()
-    }
-    
-    await db.users.insert_one(user)
+    created_at = datetime.utcnow()
+    cursor.execute(
+        "INSERT INTO users (id, name, email, password_hash, created_at) VALUES (%s, %s, %s, %s, %s)",
+        (user_id, user_data.name, user_data.email, hash_password(user_data.password), created_at)
+    )
+    conn.commit()
+    cursor.close()
+    conn.close()
     
     # Create token
     access_token = create_access_token(data={"sub": user_id})
@@ -208,24 +315,30 @@ async def register(user_data: UserRegister):
         access_token=access_token,
         user=UserResponse(
             id=user_id,
-            name=user["name"],
-            email=user["email"],
-            created_at=user["created_at"]
+            name=user_data.name,
+            email=user_data.email,
+            created_at=created_at
         )
     )
 
 @api_router.post("/auth/login", response_model=TokenResponse)
 async def login(credentials: UserLogin):
-    user = await db.users.find_one({"email": credentials.email})
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM users WHERE email = %s", (credentials.email,))
+    user = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    
     if not user or not verify_password(credentials.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
-    access_token = create_access_token(data={"sub": user["_id"]})
+    access_token = create_access_token(data={"sub": user["id"]})
     
     return TokenResponse(
         access_token=access_token,
         user=UserResponse(
-            id=user["_id"],
+            id=user["id"],
             name=user["name"],
             email=user["email"],
             created_at=user["created_at"]
@@ -235,7 +348,7 @@ async def login(credentials: UserLogin):
 @api_router.get("/auth/me", response_model=UserResponse)
 async def get_me(current_user = Depends(get_current_user)):
     return UserResponse(
-        id=current_user["_id"],
+        id=current_user["id"],
         name=current_user["name"],
         email=current_user["email"],
         created_at=current_user["created_at"]
@@ -245,256 +358,247 @@ async def get_me(current_user = Depends(get_current_user)):
 
 @api_router.post("/habits", response_model=Habit)
 async def create_habit(habit_data: HabitCreate, current_user = Depends(get_current_user)):
-    habit_id = str(uuid.uuid4())
-    habit = {
-        "_id": habit_id,
-        "user_id": current_user["_id"],
-        "name": habit_data.name,
-        "description": habit_data.description,
-        "frequency": habit_data.frequency,
-        "color": habit_data.color,
-        "icon": habit_data.icon,
-        "target_per_week": habit_data.target_per_week,
-        "created_at": datetime.utcnow()
-    }
+    conn = get_db()
+    cursor = conn.cursor()
     
-    await db.habits.insert_one(habit)
+    habit_id = str(uuid.uuid4())
+    created_at = datetime.utcnow()
+    
+    cursor.execute(
+        """INSERT INTO habits (id, user_id, name, description, frequency, color, icon, target_per_week, created_at)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+        (habit_id, current_user["id"], habit_data.name, habit_data.description,
+         habit_data.frequency, habit_data.color, habit_data.icon, habit_data.target_per_week, created_at)
+    )
+    conn.commit()
+    cursor.close()
+    conn.close()
     
     return Habit(
         id=habit_id,
-        user_id=habit["user_id"],
-        name=habit["name"],
-        description=habit["description"],
-        frequency=habit["frequency"],
-        color=habit["color"],
-        icon=habit["icon"],
-        target_per_week=habit["target_per_week"],
-        created_at=habit["created_at"]
+        user_id=current_user["id"],
+        name=habit_data.name,
+        description=habit_data.description,
+        frequency=habit_data.frequency,
+        color=habit_data.color,
+        icon=habit_data.icon,
+        target_per_week=habit_data.target_per_week,
+        created_at=created_at
     )
 
 @api_router.get("/habits", response_model=List[Habit])
 async def get_habits(current_user = Depends(get_current_user)):
-    habits = await db.habits.find({"user_id": current_user["_id"]}).to_list(1000)
-    return [
-        Habit(
-            id=h["_id"],
-            user_id=h["user_id"],
-            name=h["name"],
-            description=h.get("description", ""),
-            frequency=h["frequency"],
-            color=h.get("color", "#3f8cff"),
-            icon=h.get("icon", "checkmark-circle"),
-            target_per_week=h.get("target_per_week", 7),
-            created_at=h["created_at"]
-        )
-        for h in habits
-    ]
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM habits WHERE user_id = %s", (current_user["id"],))
+    habits = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    
+    return [Habit(**h) for h in habits]
 
 @api_router.post("/habits/log", response_model=HabitLog)
 async def log_habit(log_data: HabitLogCreate, current_user = Depends(get_current_user)):
-    # Check if log already exists for this date
-    existing_log = await db.habit_logs.find_one({
-        "habit_id": log_data.habit_id,
-        "user_id": current_user["_id"],
-        "date": log_data.date
-    })
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+    
+    # Check if log exists
+    cursor.execute(
+        "SELECT * FROM habit_logs WHERE habit_id = %s AND date = %s",
+        (log_data.habit_id, log_data.date)
+    )
+    existing_log = cursor.fetchone()
     
     if existing_log:
-        # Update existing log
-        await db.habit_logs.update_one(
-            {"_id": existing_log["_id"]},
-            {"$set": {"completed": log_data.completed, "notes": log_data.notes}}
+        # Update
+        cursor.execute(
+            "UPDATE habit_logs SET completed = %s, notes = %s WHERE id = %s",
+            (log_data.completed, log_data.notes, existing_log["id"])
         )
-        log_id = existing_log["_id"]
+        log_id = existing_log["id"]
     else:
-        # Create new log
+        # Insert
         log_id = str(uuid.uuid4())
-        log = {
-            "_id": log_id,
-            "habit_id": log_data.habit_id,
-            "user_id": current_user["_id"],
-            "date": log_data.date,
-            "completed": log_data.completed,
-            "notes": log_data.notes,
-            "timestamp": datetime.utcnow()
-        }
-        await db.habit_logs.insert_one(log)
+        timestamp = datetime.utcnow()
+        cursor.execute(
+            """INSERT INTO habit_logs (id, habit_id, user_id, date, completed, notes, timestamp)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+            (log_id, log_data.habit_id, current_user["id"], log_data.date, log_data.completed, log_data.notes, timestamp)
+        )
     
-    # Fetch and return the log
-    log = await db.habit_logs.find_one({"_id": log_id})
-    return HabitLog(
-        id=log["_id"],
-        habit_id=log["habit_id"],
-        user_id=log["user_id"],
-        date=log["date"],
-        completed=log["completed"],
-        notes=log.get("notes", ""),
-        timestamp=log["timestamp"]
-    )
+    conn.commit()
+    
+    # Fetch the log
+    cursor.execute("SELECT * FROM habit_logs WHERE id = %s", (log_id,))
+    log = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    
+    return HabitLog(**log)
 
 @api_router.get("/habits/logs", response_model=List[HabitLog])
 async def get_habit_logs(habit_id: Optional[str] = None, current_user = Depends(get_current_user)):
-    query = {"user_id": current_user["_id"]}
-    if habit_id:
-        query["habit_id"] = habit_id
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
     
-    logs = await db.habit_logs.find(query).sort("date", -1).to_list(1000)
-    return [
-        HabitLog(
-            id=log["_id"],
-            habit_id=log["habit_id"],
-            user_id=log["user_id"],
-            date=log["date"],
-            completed=log["completed"],
-            notes=log.get("notes", ""),
-            timestamp=log["timestamp"]
+    if habit_id:
+        cursor.execute(
+            "SELECT * FROM habit_logs WHERE user_id = %s AND habit_id = %s ORDER BY date DESC",
+            (current_user["id"], habit_id)
         )
-        for log in logs
-    ]
+    else:
+        cursor.execute(
+            "SELECT * FROM habit_logs WHERE user_id = %s ORDER BY date DESC",
+            (current_user["id"],)
+        )
+    
+    logs = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    
+    return [HabitLog(**log) for log in logs]
 
 # ========== MOOD ENDPOINTS ==========
 
 @api_router.post("/mood", response_model=MoodEntry)
 async def create_mood_entry(entry_data: MoodEntryCreate, current_user = Depends(get_current_user)):
-    # Check if entry exists for this date
-    existing_entry = await db.mood_entries.find_one({
-        "user_id": current_user["_id"],
-        "date": entry_data.date
-    })
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+    
+    # Check if entry exists
+    cursor.execute(
+        "SELECT * FROM mood_entries WHERE user_id = %s AND date = %s",
+        (current_user["id"], entry_data.date)
+    )
+    existing_entry = cursor.fetchone()
     
     if existing_entry:
-        # Update existing entry
-        await db.mood_entries.update_one(
-            {"_id": existing_entry["_id"]},
-            {"$set": {
-                "mood_level": entry_data.mood_level,
-                "energy_level": entry_data.energy_level,
-                "sleep_hours": entry_data.sleep_hours,
-                "notes": entry_data.notes
-            }}
+        # Update
+        cursor.execute(
+            """UPDATE mood_entries SET mood_level = %s, energy_level = %s, sleep_hours = %s, notes = %s
+               WHERE id = %s""",
+            (entry_data.mood_level, entry_data.energy_level, entry_data.sleep_hours, entry_data.notes, existing_entry["id"])
         )
-        entry_id = existing_entry["_id"]
+        entry_id = existing_entry["id"]
     else:
-        # Create new entry
+        # Insert
         entry_id = str(uuid.uuid4())
-        entry = {
-            "_id": entry_id,
-            "user_id": current_user["_id"],
-            "mood_level": entry_data.mood_level,
-            "energy_level": entry_data.energy_level,
-            "sleep_hours": entry_data.sleep_hours,
-            "notes": entry_data.notes,
-            "date": entry_data.date,
-            "timestamp": datetime.utcnow()
-        }
-        await db.mood_entries.insert_one(entry)
+        timestamp = datetime.utcnow()
+        cursor.execute(
+            """INSERT INTO mood_entries (id, user_id, mood_level, energy_level, sleep_hours, notes, date, timestamp)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+            (entry_id, current_user["id"], entry_data.mood_level, entry_data.energy_level,
+             entry_data.sleep_hours, entry_data.notes, entry_data.date, timestamp)
+        )
     
-    # Fetch and return
-    entry = await db.mood_entries.find_one({"_id": entry_id})
-    return MoodEntry(
-        id=entry["_id"],
-        user_id=entry["user_id"],
-        mood_level=entry["mood_level"],
-        energy_level=entry["energy_level"],
-        sleep_hours=entry["sleep_hours"],
-        notes=entry.get("notes", ""),
-        date=entry["date"],
-        timestamp=entry["timestamp"]
-    )
+    conn.commit()
+    
+    # Fetch the entry
+    cursor.execute("SELECT * FROM mood_entries WHERE id = %s", (entry_id,))
+    entry = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    
+    return MoodEntry(**entry)
 
 @api_router.get("/mood", response_model=List[MoodEntry])
 async def get_mood_entries(current_user = Depends(get_current_user)):
-    entries = await db.mood_entries.find({"user_id": current_user["_id"]}).sort("date", -1).to_list(1000)
-    return [
-        MoodEntry(
-            id=e["_id"],
-            user_id=e["user_id"],
-            mood_level=e["mood_level"],
-            energy_level=e["energy_level"],
-            sleep_hours=e["sleep_hours"],
-            notes=e.get("notes", ""),
-            date=e["date"],
-            timestamp=e["timestamp"]
-        )
-        for e in entries
-    ]
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(
+        "SELECT * FROM mood_entries WHERE user_id = %s ORDER BY date DESC",
+        (current_user["id"],)
+    )
+    entries = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    
+    return [MoodEntry(**e) for e in entries]
 
 # ========== FOCUS ENDPOINTS ==========
 
 @api_router.post("/focus", response_model=FocusSession)
 async def create_focus_session(session_data: FocusSessionCreate, current_user = Depends(get_current_user)):
+    conn = get_db()
+    cursor = conn.cursor()
+    
     session_id = str(uuid.uuid4())
     now = datetime.utcnow()
     start_time = now - timedelta(minutes=session_data.duration_minutes)
     
-    session = {
-        "_id": session_id,
-        "user_id": current_user["_id"],
-        "task_name": session_data.task_name,
-        "duration_minutes": session_data.duration_minutes,
-        "start_time": start_time,
-        "end_time": now,
-        "date": session_data.date,
-        "completed": session_data.completed
-    }
-    
-    await db.focus_sessions.insert_one(session)
+    cursor.execute(
+        """INSERT INTO focus_sessions (id, user_id, task_name, duration_minutes, start_time, end_time, date, completed)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+        (session_id, current_user["id"], session_data.task_name, session_data.duration_minutes,
+         start_time, now, session_data.date, session_data.completed)
+    )
+    conn.commit()
+    cursor.close()
+    conn.close()
     
     return FocusSession(
         id=session_id,
-        user_id=session["user_id"],
-        task_name=session["task_name"],
-        duration_minutes=session["duration_minutes"],
-        start_time=session["start_time"],
-        end_time=session["end_time"],
-        date=session["date"],
-        completed=session["completed"]
+        user_id=current_user["id"],
+        task_name=session_data.task_name,
+        duration_minutes=session_data.duration_minutes,
+        start_time=start_time,
+        end_time=now,
+        date=session_data.date,
+        completed=session_data.completed
     )
 
 @api_router.get("/focus", response_model=List[FocusSession])
 async def get_focus_sessions(current_user = Depends(get_current_user)):
-    sessions = await db.focus_sessions.find({"user_id": current_user["_id"]}).sort("start_time", -1).to_list(1000)
-    return [
-        FocusSession(
-            id=s["_id"],
-            user_id=s["user_id"],
-            task_name=s["task_name"],
-            duration_minutes=s["duration_minutes"],
-            start_time=s["start_time"],
-            end_time=s["end_time"],
-            date=s["date"],
-            completed=s["completed"]
-        )
-        for s in sessions
-    ]
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(
+        "SELECT * FROM focus_sessions WHERE user_id = %s ORDER BY start_time DESC",
+        (current_user["id"],)
+    )
+    sessions = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    
+    return [FocusSession(**s) for s in sessions]
 
 # ========== ANALYTICS ENDPOINTS ==========
 
 @api_router.get("/analytics", response_model=AnalyticsResponse)
 async def get_analytics(current_user = Depends(get_current_user)):
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+    
     # Get data for last 7 days
     today = datetime.utcnow().date()
     week_ago = today - timedelta(days=7)
     
-    date_strings = [(week_ago + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(8)]
+    # Fetch data
+    cursor.execute(
+        "SELECT * FROM habit_logs WHERE user_id = %s AND date >= %s",
+        (current_user["id"], week_ago)
+    )
+    habit_logs = cursor.fetchall()
     
-    # Fetch all data
-    habit_logs = await db.habit_logs.find({
-        "user_id": current_user["_id"],
-        "date": {"$in": date_strings}
-    }).to_list(1000)
+    cursor.execute(
+        "SELECT * FROM mood_entries WHERE user_id = %s AND date >= %s",
+        (current_user["id"], week_ago)
+    )
+    mood_entries = cursor.fetchall()
     
-    mood_entries = await db.mood_entries.find({
-        "user_id": current_user["_id"],
-        "date": {"$in": date_strings}
-    }).to_list(1000)
+    cursor.execute(
+        "SELECT * FROM focus_sessions WHERE user_id = %s AND date >= %s",
+        (current_user["id"], week_ago)
+    )
+    focus_sessions = cursor.fetchall()
     
-    focus_sessions = await db.focus_sessions.find({
-        "user_id": current_user["_id"],
-        "date": {"$in": date_strings}
-    }).to_list(1000)
+    cursor.execute(
+        "SELECT * FROM habits WHERE user_id = %s",
+        (current_user["id"],)
+    )
+    habits = cursor.fetchall()
     
-    habits = await db.habits.find({"user_id": current_user["_id"]}).to_list(1000)
+    cursor.close()
+    conn.close()
     
     # Calculate weekly stats
     completed_habits = sum(1 for log in habit_logs if log["completed"])
@@ -523,7 +627,7 @@ async def get_analytics(current_user = Depends(get_current_user)):
     if mood_entries and focus_sessions:
         sleep_focus_map = defaultdict(list)
         for mood in mood_entries:
-            day_focus = [s["duration_minutes"] for s in focus_sessions if s["date"] == mood["date"]]
+            day_focus = [s["duration_minutes"] for s in focus_sessions if str(s["date"]) == str(mood["date"])]
             if day_focus:
                 sleep_bucket = "low" if mood["sleep_hours"] < 6 else "high"
                 sleep_focus_map[sleep_bucket].extend(day_focus)
@@ -542,81 +646,20 @@ async def get_analytics(current_user = Depends(get_current_user)):
                     trend="down"
                 ))
     
-    # Habit streak
-    if habit_logs and habits:
-        best_habit = None
-        max_streak = 0
-        
-        for habit in habits:
-            habit_id = habit["_id"]
-            habit_specific_logs = sorted(
-                [log for log in habit_logs if log["habit_id"] == habit_id and log["completed"]],
-                key=lambda x: x["date"]
-            )
-            
-            if habit_specific_logs:
-                current_streak = 1
-                for i in range(1, len(habit_specific_logs)):
-                    if habit_specific_logs[i]["date"] == habit_specific_logs[i-1]["date"]:
-                        continue
-                    # Simple streak calculation
-                    current_streak += 1
-                
-                if current_streak > max_streak:
-                    max_streak = current_streak
-                    best_habit = habit["name"]
-        
-        if best_habit:
-            insights.append(InsightItem(
-                type="habit_streak",
-                title="Habit Streak",
-                description=f"You're on a {max_streak}-day streak with {best_habit}!",
-                value=f"{max_streak} days",
-                trend="up"
-            ))
-    
-    # Mood trend
-    if len(mood_entries) >= 2:
-        recent_moods = sorted(mood_entries, key=lambda x: x["date"])[-3:]
-        avg_recent = sum(m["mood_level"] for m in recent_moods) / len(recent_moods)
-        
-        if avg_recent >= 4:
-            insights.append(InsightItem(
-                type="mood_trend",
-                title="Great Mood Trend",
-                description=f"Your mood has been excellent lately (avg {round(avg_recent, 1)}/5)",
-                value=f"{round(avg_recent, 1)}/5",
-                trend="up"
-            ))
-    
-    # Focus productivity
-    if total_focus_minutes > 0:
-        avg_daily_focus = total_focus_minutes / 7
-        insights.append(InsightItem(
-            type="focus_productivity",
-            title="Focus Time",
-            description=f"You averaged {round(avg_daily_focus)} minutes of focus per day",
-            value=f"{round(avg_daily_focus)} min",
-            trend="neutral"
-        ))
-    
-    # Habit streaks calculation
+    # Habit streaks
     habit_streaks = {}
     for habit in habits:
-        habit_id = habit["_id"]
-        habit_specific_logs = sorted(
-            [log for log in habit_logs if log["habit_id"] == habit_id and log["completed"]],
-            key=lambda x: x["date"],
-            reverse=True
-        )
-        
-        current_streak = len(habit_specific_logs) if habit_specific_logs else 0
+        habit_id = habit["id"]
+        habit_specific_logs = [log for log in habit_logs if log["habit_id"] == habit_id and log["completed"]]
+        current_streak = len(habit_specific_logs)
         habit_streaks[habit["name"]] = current_streak
     
     # Chart data
+    date_strings = [(week_ago + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(8)]
+    
     mood_chart_data = [
         {
-            "date": e["date"],
+            "date": str(e["date"]),
             "mood": e["mood_level"],
             "energy": e["energy_level"]
         }
@@ -626,7 +669,7 @@ async def get_analytics(current_user = Depends(get_current_user)):
     focus_chart_data = [
         {
             "date": date_str,
-            "minutes": sum(s["duration_minutes"] for s in focus_sessions if s["date"] == date_str)
+            "minutes": sum(s["duration_minutes"] for s in focus_sessions if str(s["date"]) == date_str)
         }
         for date_str in date_strings
     ]
@@ -656,6 +699,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
+@app.on_event("startup")
+async def startup_db():
+    init_db()
+    logger.info("Database initialized")
