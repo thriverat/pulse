@@ -11,7 +11,7 @@ export default function Index() {
   useEffect(() => {
     if (!isLoading) {
       if (isAuthenticated) {
-        router.replace('/(main)/home');
+        router.replace('/(main)/Home');
       } else {
         router.replace('/(auth)/login');
       }
