@@ -11,6 +11,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { palette, spacing, borderRadius } from '../../constants/theme';
+import { typography } from '../../constants/theme';
 import { habitsAPI } from '../../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
@@ -306,6 +307,7 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: 'bold',
     color: palette.text,
+    fontFamily: typography.bold,
   },
   addButton: {
     width: 40,
@@ -346,6 +348,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: palette.text,
     marginBottom: spacing.xs,
+    fontFamily: typography.bold,
   },
   habitDescription: {
     fontSize: 14,
@@ -382,12 +385,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: palette.text,
     marginTop: spacing.md,
+    fontFamily: typography.bold,
   },
   emptySubtext: {
     fontSize: 14,
     color: palette.muted,
     marginTop: spacing.sm,
     textAlign: 'center',
+    fontFamily: typography.regular,
   },
   createButton: {
     backgroundColor: palette.accentBlue,
@@ -444,6 +449,7 @@ const styles = StyleSheet.create({
     color: palette.text,
     marginBottom: spacing.sm,
     marginTop: spacing.sm,
+    fontFamily: typography.bold,
   },
   colorGrid: {
     flexDirection: 'row',

@@ -9,6 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { palette, spacing, borderRadius } from '../../constants/theme';
+import { typography } from '../../constants/theme';
 import { moodAPI } from '../../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
@@ -245,10 +246,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: palette.text,
     marginBottom: spacing.xs,
+    fontFamily: typography.bold,
   },
   subtitle: {
     fontSize: 14,
     color: palette.muted,
+    fontFamily: typography.regular,
   },
   section: {
     padding: spacing.lg,
@@ -265,6 +268,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: palette.text,
     marginBottom: spacing.md,
+    fontFamily: typography.bold,
   },
   valueDisplay: {
     flexDirection: 'row',

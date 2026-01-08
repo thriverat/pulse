@@ -9,6 +9,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { palette, spacing, borderRadius } from '../../constants/theme';
+import { typography } from '../../constants/theme';
 import { focusAPI } from '../../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
@@ -229,10 +230,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: palette.text,
     marginBottom: spacing.xs,
+    fontFamily: typography.bold,
   },
   subtitle: {
     fontSize: 14,
     color: palette.muted,
+    fontFamily: typography.regular,
   },
   section: {
     padding: spacing.lg,
@@ -243,6 +246,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: palette.text,
     marginBottom: spacing.md,
+    fontFamily: typography.bold,
   },
   input: {
     backgroundColor: palette.surface,
@@ -308,12 +312,14 @@ const styles = StyleSheet.create({
     fontSize: 64,
     fontWeight: 'bold',
     color: palette.text,
+    fontFamily: typography.bold,
   },
   taskText: {
     fontSize: 16,
     color: palette.muted,
     marginTop: spacing.sm,
     textAlign: 'center',
+    fontFamily: typography.regular,
   },
   controls: {
     flexDirection: 'row',
@@ -354,6 +360,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: palette.text,
     marginBottom: spacing.md,
+    fontFamily: typography.bold,
   },
   sessionCard: {
     flexDirection: 'row',
@@ -382,6 +389,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: palette.text,
+    fontFamily: typography.medium,
   },
   sessionDate: {
     fontSize: 12,

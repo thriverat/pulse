@@ -8,6 +8,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { palette, spacing, borderRadius } from '../../constants/theme';
+import { typography } from '../../constants/theme';
 import { analyticsAPI } from '../../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { BarChart, LineChart } from 'react-native-gifted-charts';
@@ -270,6 +271,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: palette.muted,
     marginTop: spacing.md,
+    fontFamily: typography.regular,
   },
   header: {
     padding: spacing.lg,
@@ -280,10 +282,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: palette.text,
     marginBottom: spacing.xs,
+    fontFamily: typography.bold,
   },
   subtitle: {
     fontSize: 14,
     color: palette.muted,
+    fontFamily: typography.regular,
   },
   section: {
     padding: spacing.lg,
@@ -294,6 +298,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: palette.text,
     marginBottom: spacing.md,
+    fontFamily: typography.bold,
   },
   insightCard: {
     backgroundColor: palette.surface,
@@ -322,11 +327,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: palette.text,
     marginBottom: spacing.xs,
+    fontFamily: typography.bold,
   },
   insightDescription: {
     fontSize: 14,
     color: palette.muted,
     lineHeight: 20,
+    fontFamily: typography.regular,
   },
   insightValue: {
     alignItems: 'flex-end',
@@ -354,12 +361,14 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: palette.text,
     marginTop: spacing.sm,
+    fontFamily: typography.bold,
   },
   statLabel: {
     fontSize: 12,
     color: palette.muted,
     marginTop: spacing.xs,
     textAlign: 'center',
+    fontFamily: typography.regular,
   },
   completionCard: {
     backgroundColor: palette.surface,
@@ -432,6 +441,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: palette.text,
     marginTop: spacing.md,
+    fontFamily: typography.bold,
   },
   emptySubtext: {
     fontSize: 14,
@@ -439,5 +449,6 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     textAlign: 'center',
     paddingHorizontal: spacing.lg,
+    fontFamily: typography.regular,
   },
 });

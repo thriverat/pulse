@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { palette, spacing, borderRadius } from '../../constants/theme';
+import { typography } from '../../constants/theme';
 import { habitsAPI, moodAPI, focusAPI } from '../../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
@@ -276,10 +277,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: palette.text,
     marginBottom: spacing.xs,
+    fontFamily: typography.bold,
   },
   resultSubtitle: {
     fontSize: 14,
     color: palette.muted,
+    fontFamily: typography.regular,
   },
   resultNotes: {
     fontSize: 14,
@@ -299,11 +302,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: palette.text,
     marginTop: spacing.md,
+    fontFamily: typography.bold,
   },
   emptySubtext: {
     fontSize: 14,
     color: palette.muted,
     marginTop: spacing.sm,
     textAlign: 'center',
+    fontFamily: typography.regular,
   },
 });

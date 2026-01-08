@@ -8,6 +8,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { palette, spacing, borderRadius } from '../../constants/theme';
+import { typography } from '../../constants/theme';
 import { useAuthStore } from '../../store/authStore';
 import { habitsAPI, moodAPI, focusAPI, analyticsAPI } from '../../services/api';
 import { Ionicons } from '@expo/vector-icons';
@@ -222,6 +223,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: palette.text,
     marginBottom: spacing.xs,
+    fontFamily: typography.bold,
   },
   date: {
     fontSize: 14,
@@ -241,6 +243,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: palette.text,
+    fontFamily: typography.bold,
   },
   seeAll: {
     fontSize: 14,
@@ -266,11 +269,13 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: palette.text,
     marginTop: spacing.sm,
+    fontFamily: typography.bold,
   },
   statLabel: {
     fontSize: 12,
     color: palette.muted,
     marginTop: spacing.xs,
+    fontFamily: typography.regular,
   },
   habitCard: {
     flexDirection: 'row',
@@ -298,6 +303,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: palette.text,
     fontWeight: '500',
+    fontFamily: typography.medium,
   },
   checkbox: {
     width: 28,
@@ -323,6 +329,7 @@ const styles = StyleSheet.create({
     color: palette.muted,
     marginTop: spacing.md,
     marginBottom: spacing.md,
+    fontFamily: typography.regular,
   },
   addButton: {
     backgroundColor: palette.accentBlue,
@@ -349,6 +356,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: palette.text,
     marginLeft: spacing.md,
+    fontFamily: typography.regular,
   },
   checkInCard: {
     backgroundColor: palette.surface,

@@ -8,6 +8,7 @@ import {
   Alert,
 } from 'react-native';
 import { palette, spacing, borderRadius } from '../../constants/theme';
+import { typography } from '../../constants/theme';
 import { useAuthStore } from '../../store/authStore';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -144,6 +145,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: palette.text,
     marginBottom: spacing.xs,
+    fontFamily: typography.bold,
   },
   userEmail: {
     fontSize: 16,
@@ -188,10 +190,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: palette.text,
     marginBottom: spacing.xs,
+    fontFamily: typography.bold,
   },
   menuSubtitle: {
     fontSize: 14,
     color: palette.muted,
+    fontFamily: typography.regular,
   },
   logoutButton: {
     flexDirection: 'row',
@@ -218,9 +222,11 @@ const styles = StyleSheet.create({
     color: palette.muted,
     textAlign: 'center',
     marginBottom: spacing.xs,
+    fontFamily: typography.regular,
   },
   footerSubtext: {
     fontSize: 12,
     color: palette.muted,
+    fontFamily: typography.regular,
   },
 });

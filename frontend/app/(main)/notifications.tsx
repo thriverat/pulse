@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { palette, spacing, borderRadius } from '../../constants/theme';
+import { typography } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function NotificationsScreen() {
@@ -101,10 +102,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: palette.text,
     marginBottom: spacing.xs,
+    fontFamily: typography.bold,
   },
   subtitle: {
     fontSize: 14,
     color: palette.muted,
+    fontFamily: typography.regular,
   },
   notificationsList: {
     padding: spacing.lg,
@@ -133,6 +136,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: palette.text,
     marginBottom: spacing.xs,
+    fontFamily: typography.bold,
   },
   notificationMessage: {
     fontSize: 14,
@@ -154,12 +158,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: palette.text,
     marginTop: spacing.md,
+    fontFamily: typography.bold,
   },
   emptySubtext: {
     fontSize: 14,
     color: palette.muted,
     marginTop: spacing.sm,
     textAlign: 'center',
+    fontFamily: typography.regular,
   },
   infoCard: {
     flexDirection: 'row',

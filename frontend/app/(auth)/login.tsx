@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { palette, spacing, borderRadius } from '../../constants/theme';
+import { typography } from '../../constants/theme';
 import { authAPI } from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
 import { Ionicons } from '@expo/vector-icons';
@@ -146,12 +147,14 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: palette.text,
     marginTop: spacing.md,
+    fontFamily: typography.bold,
   },
   subtitle: {
     fontSize: 14,
     color: palette.muted,
     marginTop: spacing.xs,
     textAlign: 'center',
+    fontFamily: typography.regular,
   },
   form: {
     width: '100%',
@@ -190,6 +193,7 @@ const styles = StyleSheet.create({
     color: palette.text,
     fontSize: 16,
     fontWeight: '600',
+    fontFamily: typography.bold,
   },
   linkButton: {
     marginTop: spacing.lg,
@@ -198,6 +202,7 @@ const styles = StyleSheet.create({
   linkText: {
     color: palette.muted,
     fontSize: 14,
+    fontFamily: typography.regular,
   },
   linkTextBold: {
     color: palette.accentBlue,
