@@ -24,3 +24,9 @@ export const borderRadius = {
   lg: 16,
   xl: 24,
 };
+
+export const typography = {
+  regular: 'DMSans_400Regular',
+  medium: 'DMSans_500Medium',
+  bold: 'DMSans_700Bold',
+};
