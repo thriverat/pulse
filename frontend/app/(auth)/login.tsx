@@ -35,7 +35,7 @@ export default function LoginScreen() {
       const response = await authAPI.login(email.trim(), password);
       const { access_token, user } = response.data;
       await setAuth(user, access_token);
-      router.replace('/(main)/home');
+      router.replace('/(main)/Home');
     } catch (error: any) {
       Alert.alert(
         'Login Failed',
