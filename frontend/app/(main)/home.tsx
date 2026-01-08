@@ -7,8 +7,7 @@ import {
   TouchableOpacity,
   RefreshControl,
 } from 'react-native';
-import { palette, spacing, borderRadius } from '../../constants/theme';
-import { typography } from '../../constants/theme';
+import { palette, spacing, borderRadius, typography } from '../../constants/theme';
 import { useAuthStore } from '../../store/authStore';
 import { habitsAPI, moodAPI, focusAPI, analyticsAPI } from '../../services/api';
 import { Ionicons } from '@expo/vector-icons';

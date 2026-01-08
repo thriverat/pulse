@@ -7,8 +7,7 @@ import {
   RefreshControl,
   Dimensions,
 } from 'react-native';
-import { palette, spacing, borderRadius } from '../../constants/theme';
-import { typography } from '../../constants/theme';
+import { palette, spacing, borderRadius, typography } from '../../constants/theme';
 import { analyticsAPI } from '../../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { BarChart, LineChart } from 'react-native-gifted-charts';

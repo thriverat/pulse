@@ -1,7 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
-import { palette, spacing, borderRadius } from '../../constants/theme';
-import { typography } from '../../constants/theme';
+import { palette, spacing, borderRadius, typography } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function NotificationsScreen() {

@@ -8,8 +8,7 @@ import {
   Alert,
   ScrollView,
 } from 'react-native';
-import { palette, spacing, borderRadius } from '../../constants/theme';
-import { typography } from '../../constants/theme';
+import { palette, spacing, borderRadius, typography } from '../../constants/theme';
 import { focusAPI } from '../../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';

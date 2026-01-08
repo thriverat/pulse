@@ -12,8 +12,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { palette, spacing, borderRadius } from '../../constants/theme';
-import { typography } from '../../constants/theme';
+import { palette, spacing, borderRadius, typography } from '../../constants/theme';
 import { authAPI } from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
 import { Ionicons } from '@expo/vector-icons';
