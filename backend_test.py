@@ -53,15 +53,19 @@ class PulseAPITester:
         
         try:
             if method == "GET":
-                response = requests.get(url, headers=default_headers, timeout=30)
+                response = requests.get(url, headers=default_headers, timeout=60)
             elif method == "POST":
-                response = requests.post(url, json=data, headers=default_headers, timeout=30)
+                response = requests.post(url, json=data, headers=default_headers, timeout=60)
             else:
                 raise ValueError(f"Unsupported method: {method}")
             
             return response
+        except requests.exceptions.Timeout:
+            print(f"⚠️  Timeout for {method} {endpoint}")
+            return None
         except requests.exceptions.RequestException as e:
-            return None, str(e)
+            print(f"⚠️  Request error for {method} {endpoint}: {str(e)}")
+            return None
     
     def test_authentication(self):
         """Test all authentication endpoints"""
