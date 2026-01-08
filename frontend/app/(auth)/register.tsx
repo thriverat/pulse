@@ -41,7 +41,7 @@ export default function RegisterScreen() {
       const response = await authAPI.register(name.trim(), email.trim(), password);
       const { access_token, user } = response.data;
       await setAuth(user, access_token);
-      router.replace('/(main)/home');
+      router.replace('/(main)/Home');
     } catch (error: any) {
       Alert.alert(
         'Registration Failed',
